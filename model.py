@@ -1,57 +1,85 @@
 import torch
-import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
+from torchvision import models
 import torch.optim as optim
-import torchvision.transforms as transforms
-import torchvision.datasets as datasets
-from torch.utils.data import DataLoader
-import torchvision.models as models
+import torch.nn as nn
+from torchvision import transforms
+from PIL import Image
+import os
+import pandas as pd
 
-# Define the ResNet model
-class ResNet(nn.Module):
-    def __init__(self):
-        super(ResNet, self).__init__()
-        self.model = models.resnet18(pretrained=True)
-        self.model.fc = nn.Linear(self.model.fc.in_features, 3)
+class YourDataset(Dataset):
+    def __init__(self, data_dir, transform=None):
+        self.data_dir = data_dir
+        self.transform = transform
 
-    def forward(self, x):
-        x = self.model(x)
-        return x
+        # Set the path to the CSV file containing the labels
+        csv_path = os.path.join(data_dir, 'classifications.csv')
 
-# Define the device
-if torch.cuda.is_available():
-    device = torch.device("cuda")
-    print("Using GPU:", torch.cuda.get_device_name())
-else:
-    device = torch.device("cpu")
-    print("Using CPU")
+        # Load the labels from the CSV file
+        self.labels = pd.read_csv(csv_path)
 
-# Define the hyperparameters
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, idx):
+        # Get the image ID and label for the current index
+        image_id = int(self.labels.iloc[idx]['ID'])
+        label = self.labels.iloc[idx]['is_lens']
+
+        # Set the path to the image file
+        image_path = os.path.join(self.data_dir, 'jpeg_files', f'imageEUC_VIS-{image_id}.jpg')
+
+        # Load the image
+        image = Image.open(image_path)
+
+        # Apply any transforms to the image
+        if self.transform:
+            image = self.transform(image)
+
+        return image, label
+
+# Set the device to run on
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Set the batch size
 batch_size = 32
-learning_rate = 0.001
-num_epochs = 10
 
-# Define the transforms
+# Set the number of epochs to train for
+num_epochs = 9
+
+# Set the path to the directory containing your data
+data_dir = r'C:\Users\abhay\OneDrive\Desktop\task2\SpaceBasedTraining'
+
+# Define any transforms that you want to apply to the images
 transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
+    transforms.RandomResizedCrop(224),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomVerticalFlip(),
+    transforms.ToTensor()
 ])
 
-# Define the datasets
-train_dataset = datasets.ImageFolder(root='C:/Users/abhay/OneDrive/Desktop/task1/dataset_preprocessed/train',
-                                      transform=transform)
-test_dataset = datasets.ImageFolder(root='C:/Users/abhay/OneDrive/Desktop/task1/dataset_preprocessed/test',
-                                     transform=transform)
+# Create a Dataset object for your training data
+train_dataset = YourDataset(data_dir, transform=transform)
 
-# Define the data loaders
-train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
-test_loader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=False)
+# Create a DataLoader for your training data
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
-# Initialize the model and move it to the device
-model = ResNet().to(device)
+# Load a pre-trained ResNet-50 model
+model = models.resnet50(pretrained=True)
 
-# Define the loss function and optimizer
-optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-criterion = nn.CrossEntropyLoss().to(device)
+# Unfreeze all layers of the model
+for param in model.parameters():
+    param.requires_grad = True
+
+# Move the model to the device
+model = model.to(device)
+
+# Set the loss function
+criterion = nn.CrossEntropyLoss()
+
+# Set the optimizer
+optimizer = optim.SGD(model.parameters(), lr=0.0009, momentum=0.9)
 
 # Train the model
 for epoch in range(num_epochs):
@@ -60,6 +88,10 @@ for epoch in range(num_epochs):
     for i, (inputs, labels) in enumerate(train_loader):
         inputs = inputs.to(device)
         labels = labels.to(device)
+
+        # Convert the labels to a Long tensor
+        labels = labels.long()
+
         optimizer.zero_grad()
         outputs = model(inputs)
         loss = criterion(outputs, labels)
@@ -74,5 +106,3 @@ for epoch in range(num_epochs):
 
 # Save the trained model
 torch.save(model.state_dict(), 'trained_model.pth')
-import os
-print(os.getcwd())

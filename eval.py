@@ -2,30 +2,40 @@ import torch
 import torch.nn as nn
 import numpy as np
 from sklearn.metrics import roc_curve, auc
+import matplotlib.pyplot as plt
 from torchvision import transforms
 from torch.utils.data import DataLoader
 from torchvision.datasets import ImageFolder
 import torchvision.models as models
 
-# Define the ResNet model
 class ResNet(nn.Module):
     def __init__(self):
         super(ResNet, self).__init__()
-        self.model = models.resnet18(pretrained=True)
-        self.model.fc = nn.Linear(self.model.fc.in_features, 3)
+        self.resnet_model = models.resnet18(pretrained=True)
+        self.resnet_model.fc = nn.Linear(self.resnet_model.fc.in_features, 3)
 
     def forward(self, x):
-        x = self.model(x)
+        x = self.resnet_model(x)
         return x
+
 
 # Set device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Load the trained model
+# Save only the state dictionary for the ResNet module
+# Save only the state dictionary for the ResNet module
+torch.save(model.model.state_dict(), r'C:\Users\abhay\OneDrive\Desktop\task2\trained_model.pth')
+
+# Load only the state dictionary for the ResNet module
 model = ResNet()
-model.load_state_dict(torch.load(r'C:\Users\abhay\OneDrive\Desktop\Lens_classification\trained_model.pth'))
+torch.save(model.model.state_dict(), r'C:\Users\abhay\OneDrive\Desktop\task2\trained_model.pth')
+
 model = model.to(device)
 model.eval()
+
+# Rest of the code for data loading, prediction, ROC curve and AUC calculation
+
 
 # Define the data transformations
 data_transforms = transforms.Compose([
@@ -36,7 +46,7 @@ data_transforms = transforms.Compose([
 ])
 
 # Load the test data
-test_data = ImageFolder(root=r'C:\Users\abhay\OneDrive\Desktop\Lens_classification\dataset_preprocessed\test', transform=data_transforms)
+test_data = ImageFolder(root=r'C:\Users\abhay\OneDrive\Desktop\twask2\SpaceBasedTraining\jpeg.files', transform=data_transforms)
 test_loader = DataLoader(test_data, batch_size=32, shuffle=False)
 
 # Initialize lists to store the true labels and predicted probabilities
@@ -65,5 +75,12 @@ for i in range(n_classes):
     fpr[i], tpr[i], _ = roc_curve(y_true, y_pred[:, i], pos_label=i)
     roc_auc[i] = auc(fpr[i], tpr[i])
     print(f'Class {i}: AUC = {roc_auc[i]:.4f}')
+    
+    # Plot the ROC curve
+    plt.plot(fpr[i], tpr[i], label=f'Class {i}, AUC = {roc_auc[i]:.4f}')
 
-# TODO: Add code to plot the ROC curves and display the AUC scores for each class
+# Plot the ROC curves for all classes
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.legend()
+plt.show()
