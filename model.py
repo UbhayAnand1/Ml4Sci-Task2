@@ -1,108 +1,127 @@
+
 import torch
 from torch.utils.data import Dataset, DataLoader
-from torchvision import models
-import torch.optim as optim
-import torch.nn as nn
-from torchvision import transforms
+from torchvision import transforms, models
 from PIL import Image
-import os
 import pandas as pd
+import os
 
-class YourDataset(Dataset):
-    def __init__(self, data_dir, transform=None):
-        self.data_dir = data_dir
+# Set the device to run on
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# Define the data transformation
+data_transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+])
+
+# Define a custom dataset
+class LensDataset(Dataset):
+    def __init__(self, csv_file, jpg_dir, transform=None):
+        self.df = pd.read_csv(csv_file)
+        self.jpg_dir = jpg_dir
         self.transform = transform
 
-        # Set the path to the CSV file containing the labels
-        csv_path = os.path.join(data_dir, 'classifications.csv')
-
-        # Load the labels from the CSV file
-        self.labels = pd.read_csv(csv_path)
-
     def __len__(self):
-        return len(self.labels)
+        return len(self.df)
 
     def __getitem__(self, idx):
-        # Get the image ID and label for the current index
-        image_id = int(self.labels.iloc[idx]['ID'])
-        label = self.labels.iloc[idx]['is_lens']
+    # Get the file name and label for the current sample
+        filename = 'imageEUC_VIS-' + str(int(self.df.iloc[idx]['ID'])) + '.jpg'
+        label = torch.tensor(self.df.iloc[idx]['is_lens'], dtype=torch.long)
 
-        # Set the path to the image file
-        image_path = os.path.join(self.data_dir, 'jpeg_files', f'imageEUC_VIS-{image_id}.jpg')
+    # Load the image
+        image = Image.open(os.path.join(self.jpg_dir, filename))
 
-        # Load the image
-        image = Image.open(image_path)
-
-        # Apply any transforms to the image
+    # Apply the transformation (if any)
         if self.transform:
             image = self.transform(image)
 
         return image, label
 
-# Set the device to run on
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# Create the train and test datasets
+train_dataset = LensDataset(
+    csv_file=r'C:\Users\abhay\OneDrive\Desktop\task2\SpaceBasedTraining\train.csv',
+    jpg_dir=r'C:\Users\abhay\OneDrive\Desktop\task2\SpaceBasedTraining\jpg_files',
+    transform=data_transform
+)
+test_dataset = LensDataset(
+    csv_file=r'C:\Users\abhay\OneDrive\Desktop\task2\SpaceBasedTraining\test.csv',
+    jpg_dir=r'C:\Users\abhay\OneDrive\Desktop\task2\SpaceBasedTraining\jpg_files',
+    transform=data_transform
+)
 
-# Set the batch size
+# Create the data loaders
 batch_size = 32
-
-# Set the number of epochs to train for
-num_epochs = 9
-
-# Set the path to the directory containing your data
-data_dir = r'C:\Users\abhay\OneDrive\Desktop\task2\SpaceBasedTraining'
-
-# Define any transforms that you want to apply to the images
-transform = transforms.Compose([
-    transforms.RandomResizedCrop(224),
-    transforms.RandomHorizontalFlip(),
-    transforms.RandomVerticalFlip(),
-    transforms.ToTensor()
-])
-
-# Create a Dataset object for your training data
-train_dataset = YourDataset(data_dir, transform=transform)
-
-# Create a DataLoader for your training data
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
-# Load a pre-trained ResNet-50 model
+# Load the pre-trained ResNet50 model
 model = models.resnet50(pretrained=True)
 
-# Unfreeze all layers of the model
-for param in model.parameters():
-    param.requires_grad = True
+# Replace the last fully connected layer with a new one with 2 outputs (for binary classification)
+model.fc = torch.nn.Linear(model.fc.in_features, 2)
 
 # Move the model to the device
-model = model.to(device)
+model.to(device)
 
-# Set the loss function
-criterion = nn.CrossEntropyLoss()
+# Set the loss function and optimizer
+criterion = torch.nn.CrossEntropyLoss()
+optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
-# Set the optimizer
-optimizer = optim.SGD(model.parameters(), lr=0.0009, momentum=0.9)
-
-# Train the model
+# Fine-tune the model on the training data
+num_epochs = 6
 for epoch in range(num_epochs):
-    train_loss = 0.0
-    train_acc = 0.0
-    for i, (inputs, labels) in enumerate(train_loader):
+    model.train()
+
+    running_loss = 0.0
+    running_corrects = 0
+
+    # Iterate over data
+    for inputs, labels in train_loader:
         inputs = inputs.to(device)
         labels = labels.to(device)
 
-        # Convert the labels to a Long tensor
-        labels = labels.long()
-
+        # Zero the parameter gradients
         optimizer.zero_grad()
+
+        # Forward pass
         outputs = model(inputs)
+        _, preds = torch.max(outputs, 1)
         loss = criterion(outputs, labels)
+
+        # Backward pass
         loss.backward()
         optimizer.step()
-        train_loss += loss.item() * inputs.size(0)
-        _, preds = torch.max(outputs, 1)
-        train_acc += torch.sum(preds == labels.data)
-    train_loss = train_loss / len(train_dataset)
-    train_acc = train_acc / len(train_dataset)
-    print('Epoch: {} \tTraining Loss: {:.6f} \tTraining Accuracy: {:.6f}'.format(epoch+1, train_loss, train_acc))
 
-# Save the trained model
-torch.save(model.state_dict(), 'trained_model.pth')
+        # Update the running loss and corrects
+        running_loss += loss.item() * inputs.size(0)
+        running_corrects += torch.sum(preds == labels.data)
+
+    # Print the average loss and accuracy for this epoch
+    epoch_loss = running_loss / len(train_dataset)
+    epoch_acc = running_corrects.double() / len(train_dataset)
+    print('Epoch: {} \tTraining Loss: {:.6f} \tTraining Accuracy: {:.6f}'.format(epoch+1, epoch_loss, epoch_acc))
+
+# Evaluate the model on the test data
+model.eval()
+correct = 0
+total = 0
+
+with torch.no_grad():
+    for inputs, labels in test_loader:
+        # Move the inputs and labels to the device
+        inputs = inputs.to(device)
+        labels = labels.to(device)
+
+        # Forward pass
+        outputs = model(inputs)
+        _, predicted = torch.max(outputs.data, 1)
+
+        # Update the number of correctly classified samples
+        total += labels.size(0)
+        correct += (predicted == labels).sum().item()
+
+# Print the accuracy on the test data
+accuracy = correct / total
+print(f'Accuracy: {accuracy:.4f}')
