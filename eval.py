@@ -33,10 +33,16 @@ data_transform = transforms.Compose([
 ])
 
 # Load the trained model
-model = torch.load(r'C:\Users\abhay\OneDrive\Desktop\task2\trained_model.pth')
+state_dict = torch.load(r'C:\Users\abhay\OneDrive\Desktop\task2\trained_model.pth')
+
+# Load the state dictionary into the new model object
+model.load_state_dict(state_dict)
+
+# Move the model to the device
+model.to(device)
 
 # Set the model to evaluation mode
-model.eval()
+model.eval()   
 batch_size = 32
 
 # Create the test dataset and data loader

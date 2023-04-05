@@ -70,7 +70,7 @@ criterion = torch.nn.CrossEntropyLoss()
 optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
 # Fine-tune the model on the training data
-num_epochs = 6
+num_epochs = 4
 for epoch in range(num_epochs):
     model.train()
 
